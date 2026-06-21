@@ -212,6 +212,13 @@ button{font-family:var(--font);}
 .clear-color-btn{padding:3px 8px;background:none;border:1px solid var(--border);border-radius:4px;font-size:10px;cursor:pointer;color:var(--slate);white-space:nowrap;}
 .clear-color-btn:hover{background:var(--mist);}
 
+/* Profit group KPI cards */
+.kpi-box{background:var(--white);border-radius:var(--r-md);padding:12px;box-shadow:var(--sh-sm);border-left:3px solid var(--gold);}
+.kpi-box.green{border-left-color:var(--success);}
+.kpi-lbl{font-size:10px;color:var(--slate);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;}
+.kpi-val{font-size:18px;font-weight:900;color:var(--navy);font-family:var(--mono);}
+.kpi-val.g{color:var(--success);}
+
 /* ID Search */
 .srow{display:flex;gap:7px;flex-wrap:wrap;}
 .sinp{flex:1;min-width:140px;padding:10px 12px;border:1.5px solid var(--border);border-radius:var(--r-sm);font-size:15px;font-family:var(--font);outline:none;}
@@ -395,10 +402,8 @@ button{font-family:var(--font);}
       <!-- Profit by group (from Analysis sheet) -->
       <div class="fin-section">
         <div class="fin-section-head">每團利潤明細</div>
-        <div class="profit-table-wrap"><table class="ft" id="profitTable">
-          <thead><tr><th>團號</th><th>貨品數</th><th>購入¥</th><th>收到HK$</th><th>賺取HK$</th><th>每人賺</th><th>重量</th><th>客郵費</th><th>實際郵費</th></tr></thead>
-          <tbody id="profitTbody"><tr><td colspan="9" class="empty">載入中…</td></tr></tbody>
-        </table></div>
+        <div id="profitGroupTabs" class="atabs" style="padding:10px 14px 0;margin-bottom:0;"></div>
+        <div id="profitContent" style="padding:14px;"></div>
       </div>
     </div>
 
@@ -826,33 +831,70 @@ async function loadBuyerTable(){
     document.getElementById('buyerGroupLbl').textContent=d.group||'';
     const rows=Array.isArray(d.rows)?d.rows:[];
     document.getElementById('buyerTbody').innerHTML=rows.length
-      ?rows.map(r=>`<tr><td class="cn2">${esc(r.name||'')}</td><td>${r.amount!=null?'¥'+Number(r.amount).toLocaleString():'—'}</td><td class="rt">${r.rate||'—'}</td></tr>`).join('')
+      ?rows.map(r=>`<tr><td class="cn2">${esc(r.name||'')}</td><td>${r.amount!=null?'HK$'+Number(r.amount).toFixed(1):'—'}</td><td class="rt">${r.rate||'—'}</td></tr>`).join('')
       :'<tr><td colspan="3" class="empty">暫無數據</td></tr>';
   }catch(e){document.getElementById('buyerTbody').innerHTML='<tr><td colspan="3" class="empty">❌ 載入失敗</td></tr>';}
 }
+
+let profitAllRows=[], curProfitGroup='';
 
 async function loadProfitTable(){
   try{
     const d=await postMain({action:'getAnalysisData',password:pw});
     if(d.error)return;
-    const rows=Array.isArray(d.rows)?d.rows:[];
-    document.getElementById('profitTbody').innerHTML=rows.length
-      ?rows.map(r=>`<tr>
-        <td class="cn2">${esc(r.group||'')}</td>
-        <td>${r.qty!=null?r.qty:'—'}</td>
-        <td>${r.buyJpy!=null?'¥'+Number(r.buyJpy).toLocaleString():'—'}</td>
-        <td>${r.rcvHkd!=null?'HK$'+Number(r.rcvHkd).toFixed(2):'—'}</td>
-        <td class="pf">${r.earnHkd!=null?'HK$'+Number(r.earnHkd).toFixed(2):'—'}</td>
-        <td style="position:relative;">
-          ${r.perPerson!=null?`<span id="pp-${esc(r.group)}">${r.perPerson}</span>
-          <button class="clear-color-btn" onclick="clearIColor('${esc(r.group)}','${esc(r.analysisRow)}')" title="清除底色">🎨</button>`:'—'}
-        </td>
-        <td>${r.weight!=null?r.weight:'—'}</td>
-        <td>${r.custPostage!=null?'HK$'+Number(r.custPostage).toFixed(2):'—'}</td>
-        <td><input class="profit-m-inp" type="number" value="${r.actualPostage!=null?r.actualPostage:''}" placeholder="輸入" onblur="saveActualPostage('${esc(r.analysisRow)}',this.value)"></td>
-      </tr>`).join('')
-      :'<tr><td colspan="9" class="empty">暫無數據</td></tr>';
-  }catch(e){document.getElementById('profitTbody').innerHTML='<tr><td colspan="9" class="empty">❌ 載入失敗</td></tr>';}
+    profitAllRows=Array.isArray(d.rows)?d.rows:[];
+    if(!profitAllRows.length){
+      document.getElementById('profitGroupTabs').innerHTML='';
+      document.getElementById('profitContent').innerHTML='<div class="empty">暫無數據</div>';
+      return;
+    }
+    // Build tabs — newest first (rows already sorted from GAS)
+    const groups=profitAllRows.map(r=>r.group).reverse();
+    curProfitGroup=groups[0];
+    buildProfitTabs(groups);
+    renderProfitGroup(curProfitGroup);
+  }catch(e){
+    document.getElementById('profitContent').innerHTML='<div class="empty">❌ 載入失敗</div>';
+  }
+}
+
+function buildProfitTabs(groups){
+  const tabs=document.getElementById('profitGroupTabs');
+  tabs.innerHTML=groups.map(g=>
+    `<div class="atab${g===curProfitGroup?' active':''}" onclick="switchProfitGroup('${esc(g)}')">${esc(g)}</div>`
+  ).join('');
+}
+
+function switchProfitGroup(g){
+  curProfitGroup=g;
+  document.querySelectorAll('#profitGroupTabs .atab').forEach(b=>b.classList.toggle('active',b.textContent===g));
+  renderProfitGroup(g);
+}
+
+function renderProfitGroup(g){
+  const r=profitAllRows.find(row=>row.group===g);
+  const el=document.getElementById('profitContent');
+  if(!r){el.innerHTML='<div class="empty">找不到此團數據</div>';return;}
+
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div class="kpi-box"><div class="kpi-lbl">貨品數量</div><div class="kpi-val">${r.qty!=null?r.qty:'—'}</div></div>
+      <div class="kpi-box"><div class="kpi-lbl">購入日幣</div><div class="kpi-val" style="font-size:15px;">${r.buyJpy!=null?'¥'+Number(r.buyJpy).toLocaleString():'—'}</div></div>
+      <div class="kpi-box"><div class="kpi-lbl">收到港幣</div><div class="kpi-val" style="font-size:15px;">${r.rcvHkd!=null?'HK$'+Number(r.rcvHkd).toFixed(1):'—'}</div></div>
+      <div class="kpi-box green"><div class="kpi-lbl">賺取港幣</div><div class="kpi-val g">${r.earnHkd!=null?'HK$'+Number(r.earnHkd).toFixed(1):'—'}</div></div>
+      <div class="kpi-box" style="border-left-color:#7C3AED;">
+        <div class="kpi-lbl">每人賺取</div>
+        <div class="kpi-val" style="font-size:15px;color:#7C3AED;">${r.perPerson!=null?r.perPerson:'—'}</div>
+        ${r.perPerson!=null?`<button class="clear-color-btn" style="margin-top:6px;" onclick="clearIColor('${esc(g)}','${esc(String(r.analysisRow))}')">🎨 清除底色</button>`:''}
+      </div>
+      <div class="kpi-box"><div class="kpi-lbl">寄出重量</div><div class="kpi-val" style="font-size:15px;">${r.weight!=null?r.weight:'—'}</div></div>
+      <div class="kpi-box"><div class="kpi-lbl">客人郵費</div><div class="kpi-val" style="font-size:15px;">${r.custPostage!=null?'HK$'+Number(r.custPostage).toFixed(1):'—'}</div></div>
+      <div class="kpi-box" style="border-left-color:var(--warn);">
+        <div class="kpi-lbl">實際郵費（HKD）</div>
+        <input class="profit-m-inp" type="number" value="${r.actualPostage!=null?r.actualPostage:''}" placeholder="輸入金額" style="width:100%;margin-top:4px;"
+          onblur="saveActualPostage('${esc(String(r.analysisRow))}',this.value)">
+      </div>
+    </div>`;
 }
 
 async function saveActualPostage(analysisRow, value){
