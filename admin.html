@@ -249,6 +249,16 @@ button{font-family:var(--font);}
 .rec-track-inp:focus{border-color:var(--gold);}
 .rec-save-btn{padding:8px 14px;background:var(--success);color:white;border:none;border-radius:var(--r-sm);font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
 
+/* Receipt image modal */
+.receipt-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:3000;align-items:center;justify-content:center;flex-direction:column;gap:12px;}
+.receipt-modal.open{display:flex;}
+.receipt-canvas-wrap{max-width:92vw;max-height:80vh;overflow-y:auto;border-radius:var(--r-md);background:white;}
+.receipt-canvas-wrap canvas{display:block;max-width:100%;}
+.receipt-modal-btns{display:flex;gap:10px;}
+.receipt-modal-btn{padding:11px 22px;border:none;border-radius:var(--r-sm);font-weight:700;font-size:14px;cursor:pointer;}
+.rm-save{background:var(--gold);color:var(--navy);}
+.rm-close{background:rgba(255,255,255,.2);color:white;}
+
 /* Status / empty / spin */
 .empty{text-align:center;padding:36px 20px;color:var(--slate);font-size:13px;}
 .spin{width:26px;height:26px;border:3px solid rgba(201,168,76,.25);border-top-color:var(--gold);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 9px;}
@@ -470,6 +480,15 @@ button{font-family:var(--font);}
 </div>
 
 <button id="floatSave" class="fsave" onclick="saveBatch()">💾</button>
+
+<!-- Receipt Image Modal -->
+<div id="receiptModal" class="receipt-modal" onclick="closeReceiptModal(event)">
+  <div class="receipt-canvas-wrap" id="receiptCanvasWrap"></div>
+  <div class="receipt-modal-btns">
+    <button class="receipt-modal-btn rm-save" onclick="saveReceiptImg()">💾 儲存圖片</button>
+    <button class="receipt-modal-btn rm-close" onclick="document.getElementById('receiptModal').classList.remove('open')">✕ 關閉</button>
+  </div>
+</div>
 
 <script>
 // ── Config ──
@@ -946,6 +965,9 @@ async function sendShippingAction(){
   }catch(e){setSts('shipToolSts','❌ 失敗：'+e.message,'err');}
 }
 
+// ── 當前載入的 Record 團號 ──
+let currentRecordGroup = '';
+
 // ── 匯出到貨資料並即時顯示 Record 客人框 ──
 async function runExportAndRefresh(){
   const group=document.getElementById('toolGrpSel').value;
@@ -963,6 +985,7 @@ async function runExportAndRefresh(){
 async function loadRecordCards(group){
   const el=document.getElementById('recordCardList');
   if(!el)return;
+  currentRecordGroup=group;
   el.innerHTML='<div class="empty"><div class="spin"></div>載入客人資料…</div>';
   try{
     const d=await postMain({action:'getRecordData',password:pw,group});
@@ -980,7 +1003,10 @@ function renderRecordCard(r, group){
   return `<div class="rec-card" id="rcard-${r.rowNum}">
     <div class="rec-card-header">
       <div class="rec-username">${esc(r.userName)}</div>
-      <button class="rec-copy-btn" onclick="copyMsg(${r.rowNum})">📋 複製訊息</button>
+      <div style="display:flex;gap:6px;">
+        <button class="rec-copy-btn" style="background:#7C3AED;" onclick="showReceipt('${esc(r.userName)}',currentRecordGroup)">🖼️ 到貨圖</button>
+        <button class="rec-copy-btn" onclick="copyMsg(${r.rowNum})">📋 複製訊息</button>
+      </div>
     </div>
     <div class="rec-grid">
       <div class="rec-field"><label>郵寄方式</label><div class="rv">${esc(r.method)||'—'}</div></div>
@@ -1097,6 +1123,254 @@ async function saveTracking(rowNum){
     alert('儲存失敗：'+e.message);
     btn.disabled=false; btn.textContent='💾 儲存';
   }
+}
+
+// ════════ RECEIPT IMAGE ════════
+let _receiptCanvas = null;
+
+async function showReceipt(userName, group){
+  if(!userName||!group){alert('請先選擇團次並載入客人資料');return;}
+  const modal=document.getElementById('receiptModal');
+  const wrap=document.getElementById('receiptCanvasWrap');
+  wrap.innerHTML='<div style="padding:30px;text-align:center;color:#666;font-size:14px;"><div class="spin" style="margin:0 auto 10px;"></div>生成收據圖片中…</div>';
+  modal.classList.add('open');
+
+  try{
+    const d=await postMain({action:'getCustomerReceipt',password:pw,group,userName});
+    if(d.error)throw new Error(d.error);
+
+    // 需要預載所有商品圖片
+    const canvas=await drawReceiptCanvas(d, userName, group);
+    _receiptCanvas=canvas;
+    wrap.innerHTML='';
+    wrap.appendChild(canvas);
+  }catch(e){
+    wrap.innerHTML=`<div style="padding:30px;color:red;font-size:13px;">❌ ${e.message}</div>`;
+  }
+}
+
+function closeReceiptModal(e){
+  if(e.target===document.getElementById('receiptModal'))
+    document.getElementById('receiptModal').classList.remove('open');
+}
+
+function saveReceiptImg(){
+  if(!_receiptCanvas)return;
+  const link=document.createElement('a');
+  link.download='receipt.png';
+  link.href=_receiptCanvas.toDataURL('image/png');
+  link.click();
+}
+
+async function loadImg(src){
+  return new Promise((res,rej)=>{
+    if(!src){res(null);return;}
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>res(img);
+    img.onerror=()=>res(null);
+    img.src=src;
+    setTimeout(()=>res(null),5000); // 5s timeout
+  });
+}
+
+async function drawReceiptCanvas(d, userName, group){
+  const items   = d.items || [];
+  const arrTag  = group + '到貨';
+
+  // ── 找 Record 資料（郵寄方式/運費/收件人等）──
+  const recRow  = (document.querySelectorAll('.rec-username')||[]);
+  let recData   = null;
+  // 從頁面已有的 record card 讀取
+  document.querySelectorAll('.rec-card').forEach(card=>{
+    const uname=card.querySelector('.rec-username');
+    if(uname&&uname.textContent.trim()===userName){
+      const fields=card.querySelectorAll('.rv');
+      // order: 郵寄方式, 國際運費, 重量, 到貨數量, 整體編號, 貨品編號, 收件人, 電話/地址
+      recData={
+        method  : fields[0]?.textContent||'',
+        postage : fields[1]?.textContent||'',
+        weight  : fields[2]?.textContent||'',
+        receiver: fields[6]?.textContent||'',
+        phoneAddr: fields[7]?.textContent||''
+      };
+    }
+  });
+  const phone   = recData?.phoneAddr?.split('|')[0]?.trim()||'';
+  const address = recData?.phoneAddr?.split('|').slice(1).join('|').trim()||'';
+
+  // ── Canvas 尺寸 ──
+  const W       = 750;
+  const PAD     = 30;
+  const imgSide = 100;
+  const lineH   = 22;
+  const secGap  = 18;
+
+  // 預載圖片
+  const imgMap = {};
+  for(const it of items){
+    if(it.image) imgMap[it.image] = await loadImg(it.image);
+  }
+
+  // ── 先計算高度 ──
+  let estH = PAD + 30 + lineH + 10; // header
+  // 客戶資訊 block
+  estH += 7 * lineH + secGap;
+  // 已訂購商品 title
+  estH += lineH + 10;
+  for(const it of items){
+    estH += 26 + lineH + lineH + lineH + secGap; // row1 + name + weight/url + gap
+    if(imgMap[it.image]) estH += imgSide + 8;
+  }
+  estH += PAD;
+
+  const canvas  = document.createElement('canvas');
+  canvas.width  = W;
+  canvas.height = Math.max(estH, 400);
+  const ctx     = canvas.getContext('2d');
+
+  // ── Background ──
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0,0,W,canvas.height);
+
+  // ── Helper ──
+  function wrapText(text, x, y, maxW, lh, color='#1A2E45'){
+    ctx.fillStyle = color;
+    const words = text.split('');
+    let line = '', lines = [];
+    for(const ch of words){
+      const test = line + ch;
+      if(ctx.measureText(test).width > maxW && line){
+        lines.push(line); line = ch;
+      } else { line = test; }
+    }
+    if(line) lines.push(line);
+    lines.forEach((l,i)=>ctx.fillText(l, x, y + i*lh));
+    return lines.length * lh;
+  }
+
+  let y = PAD;
+
+  // ── Header ──
+  ctx.fillStyle = '#0D1B2A';
+  ctx.fillRect(0,0,W,50);
+  ctx.fillStyle = '#C9A84C';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText('852hk81jp 到貨收據', PAD, 32);
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(arrTag, W-PAD-ctx.measureText(arrTag).width, 32);
+  y = 70;
+
+  // ── 客戶資訊 ──
+  ctx.fillStyle = '#F4F6F9';
+  ctx.beginPath();
+  ctx.roundRect(PAD, y, W-PAD*2, 7*lineH+16, 8);
+  ctx.fill();
+
+  const infoX = PAD+14;
+  y += 12;
+  const infoItems = [
+    ['客戶名稱', userName],
+    ['郵寄方式', recData?.method||'—'],
+    ['重量',     recData?.weight||'—'],
+    ['國際運費', recData?.postage||'—'],
+    ['收件人',   recData?.receiver||'—'],
+    ['電話',     phone||'—'],
+    ['地址',     address||'—'],
+  ];
+  ctx.font = '13px sans-serif';
+  for(const [lbl, val] of infoItems){
+    ctx.fillStyle = '#94A3B8';
+    ctx.fillText(lbl + '：', infoX, y+13);
+    ctx.fillStyle = '#0D1B2A';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(val, infoX + 70, y+13);
+    ctx.font = '13px sans-serif';
+    y += lineH;
+  }
+  y += secGap;
+
+  // ── 已訂購商品標題 ──
+  ctx.fillStyle = '#0D1B2A';
+  ctx.font = 'bold 15px sans-serif';
+  ctx.fillText('已訂購商品', PAD, y+14);
+  y += lineH + 8;
+
+  // ── 每件商品 ──
+  for(const it of items){
+    const notArrived = !it.arrivalDate;
+    const cardH = 26 + lineH*2 + (imgMap[it.image]?imgSide+8:0) + lineH + 14;
+
+    // 背景
+    ctx.fillStyle = notArrived ? '#FFFBEB' : '#F8FAFC';
+    ctx.beginPath();
+    ctx.roundRect(PAD, y, W-PAD*2, cardH, 8);
+    ctx.fill();
+    if(notArrived){
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Row1: 編號 + 購買日期 + 到貨日期
+    const row1y = y + 18;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = '#0D1B2A';
+    ctx.fillText(`#${it.code}`, PAD+12, row1y);
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#64748B';
+    ctx.fillText(`購買：${it.orderedDate||'—'}`, PAD+60, row1y);
+    const arrText = it.arrivalDate || '未到貨';
+    const arrColor = notArrived ? '#D97706' : '#059669';
+    ctx.fillStyle = arrColor;
+    ctx.font = notArrived ? 'bold 11px sans-serif' : '11px sans-serif';
+    ctx.fillText(`到貨：${arrText}`, PAD+190, row1y);
+
+    // Row2: 商品名稱
+    const nameY = row1y + lineH;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = '#1A2E45';
+    const nameH = wrapText(it.itemName||'—', PAD+12, nameY, W-PAD*2-130, lineH);
+
+    // 商品圖片（右側）
+    const imgObj = imgMap[it.image];
+    if(imgObj){
+      const imgX = W - PAD - imgSide - 12;
+      const imgY = nameY - 4;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(imgX, imgY, imgSide, imgSide, 6);
+      ctx.clip();
+      ctx.drawImage(imgObj, imgX, imgY, imgSide, imgSide);
+      ctx.restore();
+    }
+
+    // Row3: 重量
+    const wtY = nameY + Math.max(nameH, imgObj?imgSide:0) + 4;
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#64748B';
+    ctx.fillText(`重量：${it.weightKg?it.weightKg.toFixed(3)+'kg':'—'}`, PAD+12, wtY+12);
+
+    // Row4: 商品網址
+    const urlY = wtY + lineH;
+    ctx.fillStyle = '#3B82F6';
+    ctx.font = '10px sans-serif';
+    const shortUrl = it.link ? it.link.substring(0,60)+(it.link.length>60?'…':'') : '';
+    ctx.fillText(shortUrl, PAD+12, urlY+10);
+
+    y += cardH + 10;
+  }
+
+  y += PAD;
+  canvas.height = y;
+
+  // Redraw with correct height
+  const canvas2 = document.createElement('canvas');
+  canvas2.width = W;
+  canvas2.height = y;
+  canvas2.getContext('2d').drawImage(canvas, 0, 0);
+  return canvas2;
 }
 
 async function runTool(action,label){
