@@ -233,6 +233,22 @@ button{font-family:var(--font);}
 .copybtn{background:var(--navy);color:var(--gold);border:none;padding:6px 14px;border-radius:var(--r-sm);font-weight:700;font-size:11px;cursor:pointer;}
 .stline{font-size:12px;color:var(--slate);margin-top:6px;min-height:15px;}
 
+/* Record customer cards */
+.rec-card{background:var(--white);border-radius:var(--r-md);padding:14px;margin-bottom:12px;box-shadow:var(--sh-sm);border:1.5px solid var(--border);position:relative;}
+.rec-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.rec-username{font-size:14px;font-weight:800;color:var(--navy);font-family:var(--mono);}
+.rec-copy-btn{padding:6px 12px;background:var(--navy);color:var(--gold);border:none;border-radius:var(--r-sm);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+.rec-copy-btn:active{opacity:.7;}
+.rec-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;}
+.rec-field{background:var(--mist);border-radius:var(--r-sm);padding:7px 9px;}
+.rec-field label{font-size:9px;font-weight:700;color:var(--slate);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:2px;}
+.rec-field .rv{font-size:12px;font-weight:600;color:var(--navy);font-family:var(--mono);}
+.rec-field.full{grid-column:1/-1;}
+.rec-track-row{display:flex;gap:7px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+.rec-track-inp{flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--r-sm);font-size:14px;font-family:var(--mono);outline:none;}
+.rec-track-inp:focus{border-color:var(--gold);}
+.rec-save-btn{padding:8px 14px;background:var(--success);color:white;border:none;border-radius:var(--r-sm);font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
+
 /* Status / empty / spin */
 .empty{text-align:center;padding:36px 20px;color:var(--slate);font-size:13px;}
 .spin{width:26px;height:26px;border:3px solid rgba(201,168,76,.25);border-top-color:var(--gold);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 9px;}
@@ -332,9 +348,10 @@ button{font-family:var(--font);}
 
       <!-- 到貨資料 -->
       <div id="tp-arrival" class="tool-subpanel">
-        <button class="tool-btn tb-green" onclick="runTool('exportArrivalData','匯出到貨資料')">📦 匯出到貨資料到 Record</button>
+        <button class="tool-btn tb-green" onclick="runExportAndRefresh()">📦 匯出到貨資料到 Record</button>
         <button class="tool-btn tb-purple" onclick="runTool('sendGroupReceiptsAsPdf','寄送到貨收據 PDF')">📎 寄送到貨收據 PDF</button>
         <div id="arrivalToolSts" class="tstatus"></div>
+        <div id="recordCardList" style="margin-top:14px;"></div>
       </div>
 
       <!-- 寄件處理 -->
@@ -526,6 +543,11 @@ function processItems(d){
   allGroups=[...new Set(allItems.map(i=>i.arrival).filter(a=>a&&String(a).trim()))].sort((a,b)=>gn(b)-gn(a));
   const grpOpts='<option value="">— 選擇團次 —</option>'+allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
   document.getElementById('toolGrpSel').innerHTML=grpOpts;
+  document.getElementById('toolGrpSel').onchange=function(){
+    const g=this.value;
+    const activeTab=document.querySelector('.tool-subtab.active');
+    if(activeTab&&activeTab.id==='ts-arrival'&&g) loadRecordCards(g);
+  };
 
   const shops=[...new Set(allItems.map(i=>(i.shop||'').trim()))].filter(Boolean).sort();
   document.getElementById('addShop').innerHTML='<option value="">選擇商店…</option>'+(shops.length?shops:['Mercari','Amazon','Rakuten']).map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
@@ -758,14 +780,19 @@ function clearPending(){if(confirm('確定清除？')){pending.clear();editRows.
 function loadPick(){
   pickLoaded=true;
   document.getElementById('pickContent').innerHTML='<div class="empty"><div class="spin"></div>載入中…</div>';
-  post({action:'getPickListData',password:pw}).then(d=>{
+  // 改用 MAIN_API，直接由「訂單」分頁計算執貨清單
+  postMain({action:'getPickListFromOrders',password:pw}).then(d=>{
+    if(d.error){
+      document.getElementById('pickContent').innerHTML='<div class="empty">❌ '+d.error+'</div>';
+      return;
+    }
     if(!d.allGroups||!Object.keys(d.allGroups).length){
       document.getElementById('pickContent').innerHTML='<div class="empty">目前沒有需要執貨的訂單</div>';
       return;
     }
     // 按數字降序排列，搵最新一團
     const sorted=Object.keys(d.allGroups).sort((a,b)=>gn(b)-gn(a));
-    const latest=sorted[0];
+    const latest=d.latestGroup||sorted[0];
     renderPick(d.allGroups,latest);
   }).catch(e=>{
     console.error('loadPick error:',e);
@@ -834,7 +861,8 @@ function renderPickGrp(n){
   ['HK','TW'].forEach(rk=>{
     const info=g[rk];if(!Object.keys(info.customers).length)return;
     const lbl=rk==='HK'?'🇭🇰 香港團':'🇹🇼 台灣團';
-    let h=`<div class="pick-region ${rk.toLowerCase()}"><div class="pick-title">${lbl}<span class="pick-wt">總重 ${info.totalWeight.toFixed(3)} kg</span></div>`;
+    const wt=(info.totalWeightKg||info.totalWeight||0);
+    let h=`<div class="pick-region ${rk.toLowerCase()}"><div class="pick-title">${lbl}<span class="pick-wt">總重 ${wt.toFixed(3)} kg</span></div>`;
     Object.keys(info.customers).sort().forEach(cid=>{
       const items=info.customers[cid].sort((a,b)=>Number(a.code)-Number(b.code));
       const mc=items[0]?.code||'-';
@@ -895,6 +923,175 @@ async function sendShippingAction(){
     if(d.error)throw new Error(d.error);
     setSts('shipToolSts','✅ '+d.result,'ok');
   }catch(e){setSts('shipToolSts','❌ 失敗：'+e.message,'err');}
+}
+
+// ── 匯出到貨資料並即時顯示 Record 客人框 ──
+async function runExportAndRefresh(){
+  const group=document.getElementById('toolGrpSel').value;
+  if(!group){alert('請先選擇團次！');return;}
+  setSts('arrivalToolSts','⏳ 匯出到貨資料中…','ld');
+  try{
+    const d=await postMain({action:'exportArrivalData',password:pw,group});
+    if(d&&d.error)throw new Error(d.error);
+    setSts('arrivalToolSts','✅ 匯出完成！'+(d&&d.result?' — '+d.result:''),'ok');
+    // 匯出後自動載入 Record 資料
+    await loadRecordCards(group);
+  }catch(e){setSts('arrivalToolSts','❌ 失敗：'+e.message,'err');}
+}
+
+// 切換到到貨資料 tab 時，如果已選團次就自動載入
+const _origSwitchToolTab = switchToolTab;
+function switchToolTab(t){
+  _origSwitchToolTab(t);
+  if(t==='arrival'){
+    const g=document.getElementById('toolGrpSel').value;
+    if(g) loadRecordCards(g);
+  }
+}
+
+async function loadRecordCards(group){
+  const el=document.getElementById('recordCardList');
+  if(!el)return;
+  el.innerHTML='<div class="empty"><div class="spin"></div>載入客人資料…</div>';
+  try{
+    const d=await postMain({action:'getRecordData',password:pw,group});
+    if(d.error){el.innerHTML='<div class="empty">❌ '+d.error+'</div>';return;}
+    const rows=d.rows||[];
+    if(!rows.length){el.innerHTML='<div class="empty">Record 暫無此團資料，請先匯出</div>';return;}
+    el.innerHTML=rows.map(r=>renderRecordCard(r,group)).join('');
+  }catch(e){el.innerHTML='<div class="empty">❌ 載入失敗</div>';}
+}
+
+function renderRecordCard(r, group){
+  const arrTag = r.arrivalTag || (group+'到貨');
+  const msg    = buildMsg(r, arrTag);
+  const trackVal = esc(r.tracking||'');
+  return `<div class="rec-card" id="rcard-${r.rowNum}">
+    <div class="rec-card-header">
+      <div class="rec-username">${esc(r.userName)}</div>
+      <button class="rec-copy-btn" onclick="copyMsg(${r.rowNum})">📋 複製訊息</button>
+    </div>
+    <div class="rec-grid">
+      <div class="rec-field"><label>郵寄方式</label><div class="rv">${esc(r.method)||'—'}</div></div>
+      <div class="rec-field"><label>國際運費</label><div class="rv">HK$${r.postage!=null?Number(r.postage).toFixed(1):'—'}</div></div>
+      <div class="rec-field"><label>重量</label><div class="rv">${r.weightG?r.weightG+'g':'—'}</div></div>
+      <div class="rec-field"><label>到貨數量</label><div class="rv">${r.qty||'—'}</div></div>
+      <div class="rec-field"><label>整體貨品編號</label><div class="rv">${esc(r.mark)||'—'}</div></div>
+      <div class="rec-field"><label>貨品編號</label><div class="rv">${esc(r.codes)||'—'}</div></div>
+      <div class="rec-field full"><label>收件人</label><div class="rv">${esc(r.receiver)||'—'}</div></div>
+      <div class="rec-field full"><label>電話 / 地址</label><div class="rv">${esc(r.phone)||'—'} | ${esc(r.address)||'—'}</div></div>
+    </div>
+    <div class="rec-track-row">
+      <input class="rec-track-inp" id="trk-${r.rowNum}" placeholder="輸入 Tracking No." value="${trackVal}">
+      <button class="rec-save-btn" onclick="saveTracking(${r.rowNum})">💾 儲存</button>
+    </div>
+    <textarea id="msg-${r.rowNum}" style="display:none;">${msg}</textarea>
+  </div>`;
+}
+
+function buildMsg(r, arrTag){
+  const method  = r.method || '';
+  const postage = r.postage != null ? Number(r.postage).toFixed(1) : '—';
+  const trk     = r.tracking || '（未提供）';
+  const weightG = Number(r.weightG) || 0;
+
+  if(method.includes('易寄取')){
+    // 計算本地郵費 bbb
+    let local = 10;
+    if(method.includes('7-11') || method.includes('7-Eleven') || method.includes('7-eleven')){
+      local = 13;
+    } else if(weightG > 500){
+      local = 13;
+    }
+    const total = (parseFloat(postage) + local).toFixed(1);
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
+
+請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+及易寄取郵費HK$${local}, 共HK$${total}🙏🏻
+
+如果收件資料冇更改，我哋會用以下運單編號寄出：
+${trk}
+
+謝謝!`;
+  }
+  else if(method.toUpperCase().includes('SF')){
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
+
+請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+香港運費部分會由順豐收取
+
+如果收件資料冇更改，我哋會用以下運單編號寄出：
+${trk}
+
+謝謝!`;
+  }
+  else if(method.includes('平郵')){
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
+
+請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+🙏🏻
+香港平郵郵費部分會於寄出後提供寄出證明時收取
+
+謝謝!`;
+  }
+  else{
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
+
+請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+
+謝謝!`;
+  }
+}
+
+function copyMsg(rowNum){
+  // 讀取最新 tracking 值再更新 msg
+  const trkEl = document.getElementById('trk-'+rowNum);
+  const msgEl = document.getElementById('msg-'+rowNum);
+  const card  = document.getElementById('rcard-'+rowNum);
+  if(!msgEl)return;
+
+  // 重新 build msg with latest tracking
+  const trk = trkEl ? trkEl.value.trim() : '';
+  let msg = msgEl.value;
+  // 替換 tracking 部分（如果有輸入）
+  if(trk){
+    msg = msg.replace(/
+（未提供）
+/, '
+'+trk+'
+').replace(/
+（未提供）$/, '
+'+trk);
+  }
+
+  navigator.clipboard.writeText(msg).then(()=>{
+    const btn=card.querySelector('.rec-copy-btn');
+    const orig=btn.textContent; btn.textContent='✅ 已複製！';
+    setTimeout(()=>btn.textContent=orig, 2000);
+  }).catch(()=>{
+    const ta=document.createElement('textarea');ta.value=msg;
+    document.body.appendChild(ta);ta.select();document.execCommand('copy');
+    document.body.removeChild(ta);
+    const btn=card.querySelector('.rec-copy-btn');
+    const orig=btn.textContent; btn.textContent='✅ 已複製！';
+    setTimeout(()=>btn.textContent=orig, 2000);
+  });
+}
+
+async function saveTracking(rowNum){
+  const inp=document.getElementById('trk-'+rowNum);
+  if(!inp)return;
+  const btn=inp.nextElementSibling;
+  btn.disabled=true; btn.textContent='儲存中…';
+  try{
+    const d=await postMain({action:'saveTrackingNo',password:pw,recordRow:rowNum,tracking:inp.value.trim()});
+    if(d.error)throw new Error(d.error);
+    btn.textContent='✅ 已儲存';
+    setTimeout(()=>{btn.disabled=false;btn.textContent='💾 儲存';},2000);
+  }catch(e){
+    alert('儲存失敗：'+e.message);
+    btn.disabled=false; btn.textContent='💾 儲存';
+  }
 }
 
 async function runTool(action,label){
