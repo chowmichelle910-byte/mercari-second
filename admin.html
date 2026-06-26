@@ -1015,7 +1015,7 @@ function buildMsg(r, arrTag, receiptUrl){
   const postage = r.postage != null ? Number(r.postage).toFixed(1) : '—';
   const trk     = r.tracking || '（未提供）';
   const weightG = Number(r.weightG) || 0;
-  const urlLine = receiptUrl ? ('到貨資料: ' + receiptUrl + '\n') : '到貨資料: \n';
+  const urlLine = receiptUrl ? ('\n到貨資料: ' + receiptUrl + '\n\n') : '\n到貨資料: \n\n';
 
   if(method.includes('易寄取')){
     let local = 10;
@@ -1025,8 +1025,7 @@ function buildMsg(r, arrTag, receiptUrl){
       local = 13;
     }
     const total = (parseFloat(postage) + local).toFixed(1);
-    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 及易寄取郵費HK$${local}, 共HK$${total}🙏🏻
 
 如果收件資料冇更改，我哋會用以下運單編號寄出：
@@ -1035,8 +1034,7 @@ ${trk}
 謝謝!`;
   }
   else if(method.toUpperCase().includes('SF')){
-    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 香港運費部分會由順豐收取
 
 如果收件資料冇更改，我哋會用以下運單編號寄出：
@@ -1045,16 +1043,14 @@ ${trk}
 謝謝!`;
   }
   else if(method.includes('平郵')){
-    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 🙏🏻
 香港平郵郵費部分會於寄出後提供寄出證明時收取
 
 謝謝!`;
   }
   else{
-    return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+    return `客人你好, ${arrTag}嘅貨品已運往香港途中~${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 
 謝謝!`;
   }
@@ -1149,7 +1145,10 @@ async function showReceipt(userName, group){
     const html = buildReceiptHtml(d.items||[], userName, group, recData, phone, address);
 
     // 4. 上傳到 Supabase Storage
-    const filename = `receipt_${encodeURIComponent(userName)}_${encodeURIComponent(group)}_${Date.now()}.html`;
+    // Supabase key 只接受 ASCII，移除中文同特殊字符
+  const safeUser  = userName.replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const safeGroup = group.replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const filename  = `receipt_${safeUser}_${safeGroup}_${Date.now()}.html`;
     // 用 x-upsert:true 自動處理新增/更新
     const uploadRes = await fetch(`${SB_URL}/storage/v1/object/receipts/${filename}`, {
       method : 'POST',
