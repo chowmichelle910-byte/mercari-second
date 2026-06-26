@@ -1055,13 +1055,7 @@ function copyMsg(rowNum){
   let msg = msgEl.value;
   // 替換 tracking 部分（如果有輸入）
   if(trk){
-    msg = msg.replace(/
-（未提供）
-/, '
-'+trk+'
-').replace(/
-（未提供）$/, '
-'+trk);
+    msg = msg.replace('（未提供）', trk);
   }
 
   navigator.clipboard.writeText(msg).then(()=>{
