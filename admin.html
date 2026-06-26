@@ -1015,9 +1015,7 @@ function buildMsg(r, arrTag, receiptUrl){
   const postage = r.postage != null ? Number(r.postage).toFixed(1) : '—';
   const trk     = r.tracking || '（未提供）';
   const weightG = Number(r.weightG) || 0;
-  const urlLine = receiptUrl ? `到貨資料: ${receiptUrl}
-` : '到貨資料: 
-';
+  const urlLine = receiptUrl ? ('到貨資料: ' + receiptUrl + '\n') : '到貨資料: \n';
 
   if(method.includes('易寄取')){
     let local = 10;
