@@ -456,11 +456,37 @@ button{font-family:var(--font);}
 
 <script>
 // ── Config ──
-const API     = 'https://script.google.com/macros/s/AKfycby2I6Q2M67npEFW-Vqi14JS3L7rtuQ9DLD35KwhwCaGpyt3xBnRfNyeLcOGXfslA9sx/exec';
-const MAIN_API= 'https://script.google.com/macros/s/AKfycbwT9_K4m0UvBUrZRveZJ3clzfuUCLtR1TrEok7gYDdamRtqHjk1HkZrTmLPpHuLXTRckA/exec';
+const API      = 'https://script.google.com/macros/s/AKfycby2I6Q2M67npEFW-Vqi14JS3L7rtuQ9DLD35KwhwCaGpyt3xBnRfNyeLcOGXfslA9sx/exec';
+const MAIN_API = 'https://script.google.com/macros/s/AKfycbwT9_K4m0UvBUrZRveZJ3clzfuUCLtR1TrEok7gYDdamRtqHjk1HkZrTmLPpHuLXTRckA/exec';
+const SB_URL   = 'https://ifrjaxpgrnvjesboelra.supabase.co';
+const SB_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmcmpheHBncm52amVzYm9lbHJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0MDU2OTAsImV4cCI6MjA5Nzk4MTY5MH0.3Qw4z9JGapt_B90v_ulja7pM2bSDhbhp439auyvwi_M';
 const CLOUD_NAME='disr3dmsj', UPLOAD_PRESET='mercariup', CLOUD_FOLDER='mercari';
 const LPK='03b25d4673fab76cc420aba868dff16b';
 const POS_MAP={'Wts':'Whatsapp','IG':'IG','FB':'FB','Line':'Line','TW':'Taiwan'};
+
+// ── Supabase upsert（以 sheet_row 作唯一識別）──
+async function sbUpsert(record) {
+  const res = await fetch(`${SB_URL}/rest/v1/arrivals`, {
+    method : 'POST',
+    headers: {
+      'apikey'        : SB_KEY,
+      'Authorization' : 'Bearer ' + SB_KEY,
+      'Content-Type'  : 'application/json',
+      'Prefer'        : 'resolution=merge-duplicates'
+    },
+    body: JSON.stringify(record)
+  });
+  if (!res.ok) throw new Error('Supabase ' + res.status);
+}
+
+// ── 背景 fire GAS 寫回 Sheet（唔等回應，唔阻塞用戶）──
+function fireGAS(params) {
+  fetch(API, {
+    method : 'POST',
+    mode   : 'no-cors',
+    body   : new URLSearchParams(params)
+  }).catch(() => {});
+}
 
 let pw='', allItems=[], allGroups=[], curFilter='todo', curArr='未到貨';
 let pending=new Map(), editRows=new Set(), pickLoaded=false;
@@ -655,17 +681,62 @@ async function saveBatch(){
   const sb=document.querySelector('.save-btn'),fb=document.getElementById('floatSave');
   if(sb){sb.disabled=true;sb.textContent='儲存中…';}if(fb)fb.disabled=true;
   const dv=document.getElementById('arrDateInp').value.replace(/-/g,'/');
-  const tasks=Array.from(pending.entries()).map(([row,data])=>{
-    const params={action:'saveArrivalData',password:pw,row};
+
+  // 分兩類：有圖片或重量（磅重類）→ Supabase 優先；其他（position/custId/track）→ 直接 GAS
+  const sbTasks=[], gasTasks=[];
+
+  Array.from(pending.entries()).forEach(([row,data])=>{
     const hw=data.weight!==undefined&&String(data.weight).trim()!=='';
-    if(data.position!==undefined)params.position=data.position;if(data.custId!==undefined)params.custId=data.custId;
-    if(data.weight!==undefined)params.weight=data.weight;if(data.image!==undefined)params.image=data.image;
-    if(data.track!==undefined)params.track=data.track;
-    if(hw){params.arrivalDate=dv;params.shipDate=dv;params.status='未評價';}
-    return post(params);
+    const hasImg=data.image!==undefined&&data.image!=='';
+    const isArrival=hw||hasImg;  // 到貨磅重類
+
+    const gasParams={action:'saveArrivalData',password:pw,row};
+    if(data.position!==undefined)gasParams.position=data.position;
+    if(data.custId!==undefined)gasParams.custId=data.custId;
+    if(data.weight!==undefined)gasParams.weight=data.weight;
+    if(data.image!==undefined)gasParams.image=data.image;
+    if(data.track!==undefined)gasParams.track=data.track;
+    if(hw){gasParams.arrivalDate=dv;gasParams.shipDate=dv;gasParams.status='未評價';}
+
+    if(isArrival){
+      // 1. 先寫 Supabase（快，用戶等呢個）
+      const sbRecord={sheet_row:row};
+      if(hasImg)sbRecord.image_url=data.image;
+      if(hw){sbRecord.weight_kg=parseFloat(data.weight);sbRecord.arrival_date=dv;sbRecord.status='未評價';}
+      if(data.position!==undefined)sbRecord.position=data.position;
+      if(data.custId!==undefined)sbRecord.cust_id=data.custId;
+      if(data.track!==undefined)sbRecord.track=data.track;
+      sbRecord.updated_at=new Date().toISOString();
+      sbTasks.push(sbUpsert(sbRecord));
+
+      // 2. 背景 fire GAS（唔等，慢慢寫回 Sheet）
+      fireGAS(gasParams);
+    } else {
+      // 非到貨類（改 position/custId/track）→ 直接 GAS，等回應
+      gasTasks.push(post(gasParams));
+    }
   });
-  try{await Promise.all(tasks);const f=await post({action:'getAdminItems',password:pw});if(f.items){allItems=f.items;pending.clear();editRows.clear();render();updUI();alert('儲存成功！');}}
-  catch{alert('儲存失敗');}
+
+  try{
+    // 等 Supabase（快）+ 等非到貨 GAS tasks
+    await Promise.all([...sbTasks,...gasTasks]);
+
+    // 重新載入商品列表（GAS 可能仲未寫完，但 UI 可以即時更新本地 allItems）
+    pending.forEach((data,row)=>{
+      const it=allItems.find(i=>i.row===row);
+      if(!it)return;
+      if(data.image!==undefined)it.image=data.image;
+      if(data.weight!==undefined)it.weight=parseFloat(data.weight)||0;
+      if(data.position!==undefined)it.position=data.position;
+      if(data.custId!==undefined)it.custId=data.custId;
+      if(data.track!==undefined)it.track=data.track;
+      const hw=data.weight!==undefined&&String(data.weight).trim()!=='';
+      if(hw){it.arrivalDate=dv;it.status='未評價';}
+    });
+    pending.clear();editRows.clear();render();updUI();
+    alert('儲存成功！');
+  }
+  catch(err){alert('儲存失敗：'+err.message);}
   finally{if(sb){sb.disabled=false;sb.textContent='💾 儲存全部';}if(fb)fb.disabled=false;}
 }
 function tUpload(row,mode){const i=document.getElementById('fi-'+row);if(mode==='cam')i.setAttribute('capture','environment');else i.removeAttribute('capture');i.onchange=async()=>{if(!i.files[0])return;document.getElementById('st-'+row).textContent='上傳中…';try{const u=await compUp(i.files[0]);upd(row,'image',u);}catch{document.getElementById('st-'+row).textContent='❌ 失敗';};};i.click();}
