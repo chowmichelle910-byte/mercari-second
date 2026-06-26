@@ -585,6 +585,10 @@ function switchToolTab(t){
   document.querySelectorAll('.tool-subpanel').forEach(p=>p.classList.remove('active'));
   document.getElementById('ts-'+t).classList.add('active');
   document.getElementById('tp-'+t).classList.add('active');
+  if(t==='arrival'){
+    const g=document.getElementById('toolGrpSel').value;
+    if(g) loadRecordCards(g);
+  }
 }
 
 // ════════ ARRIVAL ════════
@@ -703,7 +707,16 @@ async function render(){
 
 async function allEval(){if(!confirm('確定一鍵完成所有評價？'))return;const b=event.target;b.disabled=true;b.textContent='處理中…';try{const d=await post({action:'clearAllUnrated',password:pw});if(d.success){alert(`成功 ${d.count||0} 項`);allItems.forEach(i=>{if(i.status==='未評價')i.status='';});render();}else alert('失敗：'+d.error);}catch{alert('連線失敗');}finally{b.disabled=false;}}
 async function oneEval(row){const b=event.target;b.disabled=true;b.textContent='處理中…';try{const d=await post({action:'saveArrivalData',password:pw,row,status:''});if(d.success){const it=allItems.find(i=>i.row===row);if(it)it.status='';render();}}catch{b.disabled=false;b.textContent='✅ 已完成評價';}}
-async function fetchPrev(url,row){if(imgCache.has(url)){upIW(row,imgCache.get(url));return;}const m=url.match(/item\/(m\d+)/);if(m){const img=`https://static.mercdn.net/item/detail/orig/photos/${m[1]}_1.jpg`;svCache(url,img);upIW(row,img);return;}setTimeout(async()=>{try{const r=await fetch(`https://api.linkpreview.net/?key=${LPK}&q=${encodeURIComponent(url)}`);const d=await r.json();if(d&&d.image){svCache(url,d.image);upIW(row,d.image);}else throw 0;}catch{const l=document.getElementById(`il-${row}`);if(l)l.textContent='無預覽';}},Math.random()*2000);}
+async function fetchPrev(url,row){
+  if(imgCache.has(url)){upIW(row,imgCache.get(url));return;}
+  // Mercari 一般商品：用 static CDN 直接取圖
+  const m=url.match(/item\/(m\d+)/);
+  if(m){const img=`https://static.mercdn.net/item/detail/orig/photos/${m[1]}_1.jpg`;svCache(url,img);upIW(row,img);return;}
+  // Mercari Shops 訂單連結：無商品圖可取，顯示無預覽
+  if(url.includes('mercari-shops.com')){const l=document.getElementById(`il-${row}`);if(l)l.textContent='無預覽';return;}
+  // 其他連結：用 linkpreview
+  setTimeout(async()=>{try{const r=await fetch(`https://api.linkpreview.net/?key=${LPK}&q=${encodeURIComponent(url)}`);const d=await r.json();if(d&&d.image){svCache(url,d.image);upIW(row,d.image);}else throw 0;}catch{const l=document.getElementById(`il-${row}`);if(l)l.textContent='無預覽';}},Math.random()*2000);
+}
 function svCache(u,i){try{imgCache.set(u,i);const a=Array.from(imgCache.entries());localStorage.setItem('img_cache',JSON.stringify(a.length>400?a.slice(-400):a));}catch{localStorage.removeItem('img_cache');imgCache.clear();}}
 function upIW(row,src){const w=document.getElementById(`iw-${row}`);if(w)w.innerHTML=`<img src="${escAttr(src)}" style="width:100%;height:100%;object-fit:cover;"><div class="pvlbl">預覽</div>`;}
 function ep(row,f,old){const v=prompt(`修改${f==='track'?'運單編號':'連結'}:`,old);if(v!==null)upd(row,f,v);}
@@ -937,16 +950,6 @@ async function runExportAndRefresh(){
     // 匯出後自動載入 Record 資料
     await loadRecordCards(group);
   }catch(e){setSts('arrivalToolSts','❌ 失敗：'+e.message,'err');}
-}
-
-// 切換到到貨資料 tab 時，如果已選團次就自動載入
-const _origSwitchToolTab = switchToolTab;
-function switchToolTab(t){
-  _origSwitchToolTab(t);
-  if(t==='arrival'){
-    const g=document.getElementById('toolGrpSel').value;
-    if(g) loadRecordCards(g);
-  }
 }
 
 async function loadRecordCards(group){
