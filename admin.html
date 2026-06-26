@@ -153,6 +153,8 @@ button{font-family:var(--font);}
 .ithumb{width:50px;height:50px;object-fit:cover;border-radius:3px;background:var(--mist);}
 .inlbl{font-size:9px;color:var(--slate);width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
+/* Tool group tabs */
+#toolGrpTabs .atab{font-size:12px;}
 /* ── Tools (出單工具) ── */
 .tool-subtabs{display:flex;gap:0;background:var(--mist);border-radius:var(--r-md);padding:4px;margin-bottom:16px;}
 .tool-subtab{flex:1;padding:9px 6px;border:none;background:none;border-radius:var(--r-sm);font-weight:700;font-size:12px;cursor:pointer;color:var(--slate);transition:all .15s;font-family:var(--font);white-space:nowrap;}
@@ -321,16 +323,15 @@ button{font-family:var(--font);}
     <!-- ═══ TOOLS ═══ -->
     <div id="panel-tools" class="panel">
       <!-- Group selector always visible -->
-      <div class="card gold-left" style="margin-bottom:14px;">
-        <h4>🎯 選擇團次</h4>
-        <select id="toolGrpSel" class="tool-grp-sel"><option value="">— 選擇團次 —</option></select>
-      </div>
+      <!-- Tool group tabs -->
+      <div id="toolGrpTabs" class="atabs" style="margin-bottom:14px;"></div>
 
       <!-- Sub tabs -->
       <div class="tool-subtabs">
         <button class="tool-subtab active" id="ts-notice" onclick="switchToolTab('notice')">📧 開團通知</button>
         <button class="tool-subtab" id="ts-arrival" onclick="switchToolTab('arrival')">📦 到貨資料</button>
         <button class="tool-subtab" id="ts-ship" onclick="switchToolTab('ship')">🚚 寄件處理</button>
+        <button class="tool-subtab" id="ts-newgroup" onclick="switchToolTab('newgroup')">🆕 新團設定</button>
       </div>
 
       <!-- 開團通知 -->
@@ -365,6 +366,45 @@ button{font-family:var(--font);}
             <button class="preview-copy-btn" onclick="copyPreview('shipPreviewHtml')">📋 複製內容</button>
             <button class="preview-send-btn" onclick="sendShippingAction()">📤 確認寄出</button>
           </div>
+        </div>
+      </div>
+
+      <!-- 新團設定 -->
+      <div id="tp-newgroup" class="tool-subpanel">
+        <div class="card gold-left">
+          <h4>🆕 新團設定工具</h4>
+          <div class="charge-grid">
+            <div class="charge-field">
+              <label>團號</label>
+              <input type="text" id="ng-group" placeholder="第49團">
+            </div>
+            <div class="charge-field">
+              <label>Start Date</label>
+              <input type="date" id="ng-start">
+            </div>
+            <div class="charge-field">
+              <label>End Date</label>
+              <input type="date" id="ng-end">
+            </div>
+            <div class="charge-field">
+              <label>匯率 ¥1</label>
+              <input type="number" id="ng-r1" step="0.001" placeholder="0.052">
+            </div>
+            <div class="charge-field">
+              <label>匯率 ¥5,000</label>
+              <input type="number" id="ng-r5k" step="0.001" placeholder="0.051">
+            </div>
+            <div class="charge-field">
+              <label>匯率 ¥10,000</label>
+              <input type="number" id="ng-r10k" step="0.001" placeholder="0.050">
+            </div>
+            <div class="charge-field" style="grid-column:1/-1;">
+              <label>匯率 ¥50,000</label>
+              <input type="number" id="ng-r50k" step="0.001" placeholder="0.049">
+            </div>
+          </div>
+          <button class="charge-submit" onclick="saveNewGroup()">💾 儲存新團資料到 Currency 分頁</button>
+          <div id="ngSts" class="tstatus" style="margin-top:8px;"></div>
         </div>
       </div>
     </div>
@@ -544,12 +584,8 @@ function processItems(d){
 
   allGroups=[...new Set(allItems.map(i=>i.arrival).filter(a=>a&&String(a).trim()))].sort((a,b)=>gn(b)-gn(a));
   const grpOpts='<option value="">— 選擇團次 —</option>'+allGroups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
-  document.getElementById('toolGrpSel').innerHTML=grpOpts;
-  document.getElementById('toolGrpSel').onchange=function(){
-    const g=this.value;
-    const activeTab=document.querySelector('.tool-subtab.active');
-    if(activeTab&&activeTab.id==='ts-arrival'&&g) loadRecordCards(g);
-  };
+  // Build tool group tabs (same style as arrival tabs)
+  buildToolGrpTabs(allGroups);
 
   const shops=[...new Set(allItems.map(i=>(i.shop||'').trim()))].filter(Boolean).sort();
   document.getElementById('addShop').innerHTML='<option value="">選擇商店…</option>'+(shops.length?shops:['Mercari','Amazon','Rakuten']).map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
@@ -582,15 +618,104 @@ function switchNav(n){
 }
 
 // ── Tool sub-tabs ──
+// ── Tool group tabs ──
+let curToolGrp = '';
+
+function buildToolGrpTabs(groups){
+  const tabs = document.getElementById('toolGrpTabs');
+  if(!tabs) return;
+  tabs.innerHTML = '';
+  const show = groups.slice(0,3);
+  const more = groups.slice(3);
+
+  show.forEach(n=>{
+    const b=document.createElement('div');
+    b.className='atab'+(n===curToolGrp?' active':'');
+    b.textContent=n;
+    b.onclick=()=>selectToolGrp(n);
+    tabs.appendChild(b);
+  });
+
+  if(more.length){
+    const wrap=document.createElement('div');wrap.className='more-dropdown';
+    const btn=document.createElement('div');
+    btn.className='atab'+(more.includes(curToolGrp)?' active':'');
+    btn.textContent='更多…';
+    const list=document.createElement('div');list.className='more-list';
+    more.forEach(n=>{
+      const item=document.createElement('div');
+      item.className='more-list-item'+(n===curToolGrp?' active':'');
+      item.textContent=n;
+      item.onclick=(e)=>{e.stopPropagation();selectToolGrp(n);list.classList.remove('open');buildToolGrpTabs(allGroups);};
+      list.appendChild(item);
+    });
+    btn.onclick=(e)=>{
+      e.stopPropagation();
+      const isOpen=list.classList.contains('open');
+      document.querySelectorAll('.more-list.open').forEach(l=>l.classList.remove('open'));
+      if(!isOpen){const rect=btn.getBoundingClientRect();list.style.top=(rect.bottom+6)+'px';list.style.left=rect.left+'px';list.classList.add('open');}
+    };
+    document.addEventListener('click',()=>list.classList.remove('open'));
+    wrap.appendChild(btn);wrap.appendChild(list);tabs.appendChild(wrap);
+  }
+
+  // Auto-select first group if none selected
+  if(!curToolGrp && groups.length) selectToolGrp(groups[0]);
+}
+
+function selectToolGrp(g){
+  curToolGrp = g;
+  // Update active tab
+  document.querySelectorAll('#toolGrpTabs .atab').forEach(b=>{
+    b.classList.toggle('active', b.textContent===g);
+  });
+  // Reload arrival cards if on arrival tab
+  const activeTab=document.querySelector('.tool-subtab.active');
+  if(activeTab&&activeTab.id==='ts-arrival') loadRecordCards(g);
+}
+
+// ── 新團設定 ──
+async function loadNewGroupDefaults(){
+  try{
+    const d=await postMain({action:'getNewGroupDefaults',password:pw});
+    if(d.error)return;
+    document.getElementById('ng-group').value=d.group||'';
+    document.getElementById('ng-start').value=d.start||'';
+    document.getElementById('ng-end').value=d.end||'';
+    document.getElementById('ng-r1').value=d.r1||'';
+    document.getElementById('ng-r5k').value=d.r5k||'';
+    document.getElementById('ng-r10k').value=d.r10k||'';
+    document.getElementById('ng-r50k').value=d.r50k||'';
+  }catch(e){}
+}
+
+async function saveNewGroup(){
+  const group=document.getElementById('ng-group').value.trim();
+  const start=document.getElementById('ng-start').value;
+  const end=document.getElementById('ng-end').value;
+  const r1=document.getElementById('ng-r1').value;
+  const r5k=document.getElementById('ng-r5k').value;
+  const r10k=document.getElementById('ng-r10k').value;
+  const r50k=document.getElementById('ng-r50k').value;
+  if(!group||!start||!end){alert('請填寫團號、開始及結束日期');return;}
+  setSts('ngSts','⏳ 儲存中…','ld');
+  try{
+    const d=await postMain({action:'saveNewGroup',password:pw,group,start:start.replace(/-/g,'/'),end:end.replace(/-/g,'/'),r1,r5k,r10k,r50k});
+    if(d.error)throw new Error(d.error);
+    setSts('ngSts','✅ 已儲存！','ok');
+    // Refresh tool group tabs
+    const f=await post({action:'getAdminItems',password:pw});
+    if(f.items) processItems(f);
+  }catch(e){setSts('ngSts','❌ 失敗：'+e.message,'err');}
+}
+
 function switchToolTab(t){
   document.querySelectorAll('.tool-subtab').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.tool-subpanel').forEach(p=>p.classList.remove('active'));
   document.getElementById('ts-'+t).classList.add('active');
   document.getElementById('tp-'+t).classList.add('active');
-  if(t==='arrival'){
-    const g=document.getElementById('toolGrpSel').value;
-    if(g) loadRecordCards(g);
-  }
+  if(t==='arrival'&&curToolGrp) loadRecordCards(curToolGrp);
+  if(t==='newgroup') loadNewGroupDefaults();
 }
 
 // ════════ ARRIVAL ════════
@@ -900,7 +1025,7 @@ function setSts(id,msg,type){const el=document.getElementById(id);if(!el)return;
 
 // Preview group email (show in page)
 async function previewGroupEmail(){
-  const group=document.getElementById('toolGrpSel').value;
+  const group=curToolGrp;
   if(!group){alert('請先選擇團次！');return;}
   setSts('noticeSts','⏳ 載入 Email 內容中…','ld');
   try{
@@ -913,7 +1038,7 @@ async function previewGroupEmail(){
 }
 
 async function sendGroupEmailAction(){
-  const group=document.getElementById('toolGrpSel').value;
+  const group=curToolGrp;
   if(!group||!confirm(`確定寄出「${group}」開團通知 Email？`))return;
   setSts('noticeSts','⏳ 寄送中…','ld');
   try{
@@ -925,7 +1050,7 @@ async function sendGroupEmailAction(){
 
 // Preview shipping notification (show in page)
 async function previewShippingNotification(){
-  const group=document.getElementById('toolGrpSel').value;
+  const group=curToolGrp;
   if(!group){alert('請先選擇團次！');return;}
   setSts('shipToolSts','⏳ 載入通知內容中…','ld');
   try{
@@ -953,7 +1078,7 @@ let currentRecordGroup = '';
 
 // ── 匯出到貨資料並即時顯示 Record 客人框 ──
 async function runExportAndRefresh(){
-  const group=document.getElementById('toolGrpSel').value;
+  const group=curToolGrp;
   if(!group){alert('請先選擇團次！');return;}
   setSts('arrivalToolSts','⏳ 匯出到貨資料中…','ld');
   try{
@@ -1149,7 +1274,8 @@ async function showReceipt(userName, group){
   const safeUser  = userName.replace(/[^a-zA-Z0-9_\-]/g, '_');
   const safeGroup = group.replace(/[^a-zA-Z0-9_\-]/g, '_');
   const filename  = `receipt_${safeUser}_${safeGroup}_${Date.now()}.html`;
-    // 用 x-upsert:true 自動處理新增/更新
+    // 用 x-upsert:true 自動處理新增/更新，確保 UTF-8 encoding
+    const htmlBytes = new TextEncoder().encode(html);
     const uploadRes = await fetch(`${SB_URL}/storage/v1/object/receipts/${filename}`, {
       method : 'POST',
       headers: {
@@ -1157,8 +1283,9 @@ async function showReceipt(userName, group){
         'Authorization' : 'Bearer ' + SB_KEY,
         'Content-Type'  : 'text/html; charset=utf-8',
         'x-upsert'      : 'true',
+        'Content-Length': String(htmlBytes.length),
       },
-      body: new Blob([html], {type:'text/html'})
+      body: new Blob([htmlBytes], {type:'text/html; charset=utf-8'})
     });
 
     if(!uploadRes.ok){
@@ -1265,7 +1392,8 @@ function buildReceiptHtml(items, userName, group, recData, phone, address){
   return `<!DOCTYPE html>
 <html lang="zh-HK">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>852hk81jp 到貨收據 — ${esc(arrTag)}</title>
 <style>
@@ -1311,7 +1439,7 @@ ${itemsHtml}
 }
 
 async function runTool(action,label){
-  const group=document.getElementById('toolGrpSel').value;
+  const group=curToolGrp;
   if(!group){alert('請先選擇團次！');return;}
   const stsId=action==='exportArrivalData'||action==='sendGroupReceiptsAsPdf'?'arrivalToolSts':'shipToolSts';
   setSts(stsId,`⏳ ${label} 處理中…`,'ld');
