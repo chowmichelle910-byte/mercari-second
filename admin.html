@@ -1297,7 +1297,7 @@ async function showReceipt(userName, group){
     const publicUrl = `${SB_URL}/storage/v1/object/public/receipts/${filename}`;
 
     // 6. 顯示 URL + 複製
-    const VIEWER_BASE = 'https://你嘅vercel網域/viewer.html'; // 改成你實際網域
+    const VIEWER_BASE = 'https://852hk-81jp-mercari.vercel.app/viewer.html'; // 改成你實際網域
 const viewerUrl = `${VIEWER_BASE}?src=${encodeURIComponent(publicUrl)}`;
 showReceiptUrl(userName, viewerUrl);
 
