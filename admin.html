@@ -981,7 +981,8 @@ async function loadRecordCards(group){
 
 function renderRecordCard(r, group){
   const arrTag = r.arrivalTag || (group+'到貨');
-  const msg    = buildMsg(r, arrTag);
+  const receiptUrl = r._receiptUrl || '';
+  const msg    = buildMsg(r, arrTag, receiptUrl);
   const trackVal = esc(r.tracking||'');
   return `<div class="rec-card" id="rcard-${r.rowNum}">
     <div class="rec-card-header">
@@ -1009,14 +1010,16 @@ function renderRecordCard(r, group){
   </div>`;
 }
 
-function buildMsg(r, arrTag){
+function buildMsg(r, arrTag, receiptUrl){
   const method  = r.method || '';
   const postage = r.postage != null ? Number(r.postage).toFixed(1) : '—';
   const trk     = r.tracking || '（未提供）';
   const weightG = Number(r.weightG) || 0;
+  const urlLine = receiptUrl ? `到貨資料: ${receiptUrl}
+` : '到貨資料: 
+';
 
   if(method.includes('易寄取')){
-    // 計算本地郵費 bbb
     let local = 10;
     if(method.includes('7-11') || method.includes('7-Eleven') || method.includes('7-eleven')){
       local = 13;
@@ -1025,8 +1028,7 @@ function buildMsg(r, arrTag){
     }
     const total = (parseFloat(postage) + local).toFixed(1);
     return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-
-請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 及易寄取郵費HK$${local}, 共HK$${total}🙏🏻
 
 如果收件資料冇更改，我哋會用以下運單編號寄出：
@@ -1036,8 +1038,7 @@ ${trk}
   }
   else if(method.toUpperCase().includes('SF')){
     return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-
-請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 香港運費部分會由順豐收取
 
 如果收件資料冇更改，我哋會用以下運單編號寄出：
@@ -1047,8 +1048,7 @@ ${trk}
   }
   else if(method.includes('平郵')){
     return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-
-請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 🙏🏻
 香港平郵郵費部分會於寄出後提供寄出證明時收取
 
@@ -1056,26 +1056,29 @@ ${trk}
   }
   else{
     return `客人你好, ${arrTag}嘅貨品已運往香港途中~
-
-請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
+${urlLine}請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${postage}
 
 謝謝!`;
   }
 }
 
 function copyMsg(rowNum){
-  // 讀取最新 tracking 值再更新 msg
   const trkEl = document.getElementById('trk-'+rowNum);
   const msgEl = document.getElementById('msg-'+rowNum);
   const card  = document.getElementById('rcard-'+rowNum);
   if(!msgEl)return;
 
-  // 重新 build msg with latest tracking
   const trk = trkEl ? trkEl.value.trim() : '';
   let msg = msgEl.value;
-  // 替換 tracking 部分（如果有輸入）
   if(trk){
     msg = msg.replace('（未提供）', trk);
+  }
+  // 如果有收據 URL，確保已加入（若生成後才點複製）
+  const urlRow = card?.querySelector('.receipt-url-row a');
+  if(urlRow && !msg.includes(urlRow.href)){
+    const url = urlRow.href;
+    msg = msg.replace('到貨資料: \n', `到貨資料: ${url}\n`)
+             .replace('途中~\n請', `途中~\n到貨資料: ${url}\n請`);
   }
 
   navigator.clipboard.writeText(msg).then(()=>{
@@ -1149,30 +1152,21 @@ async function showReceipt(userName, group){
 
     // 4. 上傳到 Supabase Storage
     const filename = `receipt_${encodeURIComponent(userName)}_${encodeURIComponent(group)}_${Date.now()}.html`;
+    // 用 x-upsert:true 自動處理新增/更新
     const uploadRes = await fetch(`${SB_URL}/storage/v1/object/receipts/${filename}`, {
       method : 'POST',
       headers: {
         'apikey'        : SB_KEY,
         'Authorization' : 'Bearer ' + SB_KEY,
-        'Content-Type'  : 'text/html;charset=utf-8',
-        'Cache-Control' : '3600',
+        'Content-Type'  : 'text/html; charset=utf-8',
+        'x-upsert'      : 'true',
       },
-      body: html
+      body: new Blob([html], {type:'text/html'})
     });
 
     if(!uploadRes.ok){
-      // 如果已存在就用 PUT 更新
-      const putRes = await fetch(`${SB_URL}/storage/v1/object/receipts/${filename}`, {
-        method : 'PUT',
-        headers: {
-          'apikey'        : SB_KEY,
-          'Authorization' : 'Bearer ' + SB_KEY,
-          'Content-Type'  : 'text/html;charset=utf-8',
-          'Cache-Control' : '3600',
-        },
-        body: html
-      });
-      if(!putRes.ok) throw new Error('上傳失敗：'+putRes.status);
+      const errText = await uploadRes.text();
+      throw new Error('上傳失敗：'+uploadRes.status+' — '+errText);
     }
 
     // 5. 公開 URL
@@ -1189,13 +1183,12 @@ async function showReceipt(userName, group){
 }
 
 function showReceiptUrl(userName, url){
-  // 喺對應嘅客人框入面顯示連結
   document.querySelectorAll('.rec-card').forEach(card=>{
     const uname=card.querySelector('.rec-username');
     if(uname&&uname.textContent.trim()===userName){
       // 移除舊的 url row（如有）
-      const old=card.querySelector('.receipt-url-row');
-      if(old)old.remove();
+      const oldRow=card.querySelector('.receipt-url-row');
+      if(oldRow)oldRow.remove();
 
       const row=document.createElement('div');
       row.className='receipt-url-row';
@@ -1205,9 +1198,24 @@ function showReceiptUrl(userName, url){
           <a href="${url}" target="_blank" style="color:#1E40AF;">🔗 ${url}</a>
         </span>
         <button onclick="copyReceiptUrl('${url}',this)" style="padding:5px 11px;background:#1E40AF;color:white;border:none;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">複製連結</button>`;
-      // 插入到 track row 前面
       const trackRow=card.querySelector('.rec-track-row');
       card.insertBefore(row, trackRow);
+
+      // 更新 hidden msg textarea 加入 URL
+      const msgEl=card.querySelector('textarea[id^="msg-"]');
+      if(msgEl){
+        let msg=msgEl.value;
+        if(!msg.includes(url)){
+          // 如果訊息有"到貨資料: 
+"就補入，否則插入到第一行後
+          if(msg.includes('到貨資料: \n')){
+            msg=msg.replace('到貨資料: \n',`到貨資料: ${url}\n`);
+          } else {
+            msg=msg.replace('途中~\n','途中~\n到貨資料: '+url+'\n');
+          }
+          msgEl.value=msg;
+        }
+      }
     }
   });
 }
