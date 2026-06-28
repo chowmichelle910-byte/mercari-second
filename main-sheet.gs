@@ -740,7 +740,7 @@ function getCustomerReceipt_(group, userName) {
     const itemName    = String(row[6]  || '').trim(); // G
     const code        = String(row[14] || '').trim(); // O
     const weightKg    = parseFloat(row[16]) || 0;     // Q
-    const image       = String(row[18] || '').trim(); // S
+    const image       = isFutureGrp ? '' : String(row[18] || '').trim(); // S: 未來團不顯示到貨圖
 
     let orderedDateStr = '';
     if (orderedDate instanceof Date) {
