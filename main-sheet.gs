@@ -326,8 +326,8 @@ function getGroupInfo_(groupId) {
     groupNum:    normalize(group),
     cutoffStart: jpDate(startDate) + 'から',
     cutoffEnd:   jpDate(endDate)   + 'まで',
-    shipDate:    slashDate(startDate, 1), // 收單開始+1日
-    arrivalHk:   slashDate(startDate, 8), // 寄出+7日
+    shipDate:    slashDate(endDate, 1), // 收單結束+1日
+    arrivalHk:   slashDate(endDate, 8), // 寄出+7日
     rate:        rateDisplay,
   };
 }
