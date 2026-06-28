@@ -1157,6 +1157,11 @@ async function previewShippingNotification(){
   try{
     const d=await postMain({action:'getShippingNotificationPreview',password:pw,group});
     if(d.error)throw new Error(d.error);
+    // 若 GAS 未更新仍返回舊 {html} 格式，提示用戶
+    if(d.html!==undefined && d.easy===undefined){
+      setSts('shipToolSts','⚠️ GAS 需更新並重新部署，才能顯示新格式','err');
+      return;
+    }
     renderShipSummary(d);
     setSts('shipToolSts','','');
   }catch(e){setSts('shipToolSts','❌ 失敗：'+e.message,'err');}
