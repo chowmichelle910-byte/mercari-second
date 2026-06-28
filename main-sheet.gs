@@ -618,8 +618,14 @@ function getNewGroupDefaults_() {
   // A10 起係資料，A9 係標題
   if (lastRow < 10) return { group: '第1團', start: '', end: '', r1: '', r5k: '', r10k: '', r50k: '' };
 
-  const lastDataRow = lastRow;
-  const row = curSheet.getRange(lastDataRow, 1, 1, 8).getValues()[0];
+  // Scan backwards from lastRow to find last row with non-empty column A
+  const allData = curSheet.getRange(10, 1, lastRow - 9, 8).getValues();
+  let lastIdx = -1;
+  for (let i = allData.length - 1; i >= 0; i--) {
+    if (String(allData[i][0] || '').trim()) { lastIdx = i; break; }
+  }
+  if (lastIdx < 0) return { group: '第1團', start: '', end: '', r1: '', r5k: '', r10k: '', r50k: '' };
+  const row = allData[lastIdx];
 
   // 解析最後一團號，+1
   const lastGroup = String(row[0] || '').trim();
@@ -680,6 +686,14 @@ function saveNewGroup_(params) {
 }
 
 // ─────────────────────────────────────────────
+//  Helper: extract numeric part from group name (e.g. '第48團' → 48)
+// ─────────────────────────────────────────────
+function getGroupNum_(groupName) {
+  const m = String(groupName || '').match(/\d+/);
+  return m ? parseInt(m[0]) : -1;
+}
+
+// ─────────────────────────────────────────────
 //  B=1(購買日期), C=2(Position), D=3(ID),
 //  F=5(Link), G=6(商品名), O=14(Code),
 //  P=15(到貨日期), Q=16(重量KG), S=18(到貨圖片)
@@ -710,10 +724,16 @@ function getCustomerReceipt_(group, userName) {
     // 2. A欄 = 選擇團號（本團已到貨）OR P欄空白（未到貨）
     if (rowPos !== position || rowId !== id) continue;
 
+    const selectedNum  = getGroupNum_(group);
+    const rowGroupNum  = rowArrival ? getGroupNum_(rowArrival) : -1;
+    const isFutureGrp  = rowArrival && rowGroupNum > selectedNum;
     const isThisGroup  = rowArrival === String(group).trim();
     const isNotArrived = !arrivalDate; // P欄空白 = 未到貨
 
-    if (!isThisGroup && !isNotArrived) continue;
+    if (!isThisGroup && !isNotArrived && !isFutureGrp) continue;
+
+    // Future group items treated as not arrived
+    const effectiveArrivalDate = isFutureGrp ? null : arrivalDate;
 
     const orderedDate = row[1]; // B
     const link        = String(row[5]  || '').trim(); // F
@@ -730,10 +750,10 @@ function getCustomerReceipt_(group, userName) {
     }
 
     let arrivalDateStr = '';
-    if (arrivalDate instanceof Date) {
-      arrivalDateStr = `${arrivalDate.getFullYear()}/${arrivalDate.getMonth()+1}/${arrivalDate.getDate()}`;
-    } else if (arrivalDate) {
-      arrivalDateStr = String(arrivalDate).trim();
+    if (effectiveArrivalDate instanceof Date) {
+      arrivalDateStr = `${effectiveArrivalDate.getFullYear()}/${effectiveArrivalDate.getMonth()+1}/${effectiveArrivalDate.getDate()}`;
+    } else if (effectiveArrivalDate) {
+      arrivalDateStr = String(effectiveArrivalDate).trim();
     }
 
     items.push({

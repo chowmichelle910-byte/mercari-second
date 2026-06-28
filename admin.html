@@ -307,6 +307,7 @@ button{font-family:var(--font);}
         <button class="fb" id="f-unrated" onclick="setFilter('unrated')">未評價</button>
         <button class="fb" id="f-done" onclick="setFilter('done')">已完成</button>
         <button class="fb" id="f-all" onclick="setFilter('all')">全部</button>
+        <button class="fb" id="f-refresh" onclick="refreshArrival(this)" style="margin-left:auto;">🔄 重整</button>
       </div>
       <div id="shipBanner" class="ship-banner"><span>🚚</span><div id="shipText" class="ship-banner-text">讀取中…</div></div>
       <div id="arrTabs" class="atabs"></div>
@@ -720,6 +721,15 @@ function switchToolTab(t){
 }
 
 // ════════ ARRIVAL ════════
+async function refreshArrival(btn){
+  const o=btn?btn.textContent:'';
+  if(btn){btn.textContent='⏳';btn.disabled=true;}
+  try{
+    const d=await post({action:'getAdminItems',password:pw});
+    if(d.items)processItems(d);
+  }catch(e){}
+  finally{if(btn){btn.textContent=o;btn.disabled=false;}}
+}
 function setFilter(t){
   curFilter=t;
   document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
