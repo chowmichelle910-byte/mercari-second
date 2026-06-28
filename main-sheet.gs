@@ -88,10 +88,6 @@ function doPost(e) {
       try { return jsonResponse_({ success: true, result: generatePostData(group) }); }
       catch(err) { return jsonResponse_({ error: err.message }); }
 
-    case 'sendGroupReceiptsAsPdf':
-      try { return jsonResponse_({ success: true, result: sendGroupReceiptsAsPdf(group) }); }
-      catch(err) { return jsonResponse_({ error: err.message }); }
-
     case 'sendShippingNotification':
       try { return jsonResponse_({ success: true, result: sendShippingNotification(group) }); }
       catch(err) { return jsonResponse_({ error: err.message }); }
@@ -1259,83 +1255,6 @@ function sendGroupEmail(groupId) {
 
   GmailApp.sendEmail(RECIPIENT_EMAIL, subject, "", { htmlBody });
   return subject;
-}
-
-// ─────────────────────────────────────────────
-//  sendGroupReceiptsAsPdf
-// ─────────────────────────────────────────────
-function sendGroupReceiptsAsPdf(group) {
-  const ss           = SpreadsheetApp.getActiveSpreadsheet();
-  const recordSheet  = ss.getSheetByName("Record");
-  const receiptSheet = ss.getSheetByName("Receipt");
-  const emailTo      = Session.getActiveUser().getEmail();
-  if (!recordSheet || !receiptSheet) throw new Error("找不到 Record 或 Receipt 工作表");
-
-  const recordData  = recordSheet.getDataRange().getValues();
-  const matchedRows = recordData.slice(1).filter(row => row[2] === `${group}到貨`);
-  if (!matchedRows.length) throw new Error(`找不到符合「${group}到貨」的紀錄`);
-
-  const folder=DriveApp.createFolder(`Receipts_${group}_${new Date().toISOString()}`);
-  const pdfBlobs=[],messageParts=[];
-
-  matchedRows.forEach(row=>{
-    const name=row[0],groupTag=row[2],amount=parseFloat(row[6]),total=parseFloat(row[7]),
-          method=row[8],code=row[9],phone=row[10],addr=row[11],trackingNo=row[12];
-    receiptSheet.getRange("B2:E2").clearContent();
-    receiptSheet.getRange("G1").setValue(name);
-    receiptSheet.getRange("G3").setValue(groupTag);
-    receiptSheet.getRange("B2").setValue(method);
-    receiptSheet.getRange("C2").setValue(code);
-    receiptSheet.getRange("D2").setValue(phone);
-    receiptSheet.getRange("E2").setValue(addr);
-    SpreadsheetApp.flush();
-    const finalName=receiptSheet.getRange("G1").getValue().toString().trim();
-    const finalGroup=receiptSheet.getRange("G3").getValue().toString().trim();
-    const pdf=createPdfFromSheet(receiptSheet,`Receipt_${finalName}_${finalGroup}`);
-    folder.createFile(pdf);pdfBlobs.push(pdf);
-
-    let part=`${name}\n客人你好, ${group}到貨嘅貨品已運往香港途中~\n\n請客人核對表格中嘅收件資料, 並可以隨時支付國際運費HK$${amount}`;
-    if(method==="易寄取 (7-11)"||method==="易寄取 (櫃位/ 智郵站)"){
-      const local=method==="易寄取 (7-11)"?13:total<500?10:13;
-      part+=`\n及易寄取郵費HK$${local}, 共HK$${(amount+local).toFixed(1)}🙏🏻\n\n如果收件資料冇更改，我哋會用以下運單編號寄出：\n${trackingNo||"（未提供）"}`;
-    }else if(method==="SF"){
-      part+=`\n香港運費部分會由順豐收取\n\n如果收件資料冇更改，我哋會用以下運單編號寄出：\n${trackingNo||"（未提供）"}`;
-    }else if(method==="平郵"){
-      part+=`\n🙏🏻\n香港平郵郵費部分會於寄出後提供寄出證明時收取`;
-    }
-    part+="\n\n謝謝!\n";
-    messageParts.push(part);
-    Utilities.sleep(500);
-  });
-
-  MailApp.sendEmail({to:emailTo,subject:`📎 ${group} 到貨收據 PDF`,body:`附件為 ${group} 的到貨收據，共 ${pdfBlobs.length} 份\n\n${messageParts.join("\n")}`,attachments:pdfBlobs});
-  folder.setTrashed(true);
-  return `✅ 已產生 ${pdfBlobs.length} 份收據 PDF 並寄出`;
-}
-
-function createPdfFromSheet(sheet, filename) {
-  const spreadsheet=sheet.getParent(),sheetId=sheet.getSheetId();
-  const url=`https://docs.google.com/spreadsheets/d/${spreadsheet.getId()}/export?`;
-  const lastDataRow=getLastDataRowBeforeFirstN(sheet);
-  const exportOptions={exportFormat:"pdf",format:"pdf",size:"A4",portrait:true,fitw:true,sheetnames:false,printtitle:false,pagenumbers:false,gridlines:false,fzr:false,gid:sheetId,range:`A1:J${lastDataRow}`};
-  const params=Object.keys(exportOptions).map(k=>`${k}=${encodeURIComponent(exportOptions[k])}`).join("&");
-  const token=ScriptApp.getOAuthToken(),headers={Authorization:`Bearer ${token}`};
-  for(let attempts=1;attempts<=5;attempts++){
-    try{
-      const response=UrlFetchApp.fetch(url+params,{headers,muteHttpExceptions:true});
-      const blob=response.getBlob();
-      if(!blob.getContentType().includes("pdf")||blob.getDataAsString().includes("<html"))throw new Error("Invalid PDF");
-      return blob.setName(`${filename}.pdf`);
-    }catch(e){if(attempts===5)throw new Error("Google 拒絕導出 PDF");Utilities.sleep(1000*attempts);}
-  }
-}
-
-function getLastDataRowBeforeFirstN(sheet) {
-  const aValues=sheet.getRange("A10:A101").getDisplayValues();
-  const kValues=sheet.getRange("K10:K101").getDisplayValues();
-  for(let i=0;i<kValues.length;i++){if(kValues[i][0].toString().trim().toUpperCase()==="N")return 9+i;}
-  for(let i=aValues.length-1;i>=0;i--){if(aValues[i][0].toString().trim()!=="")return 9+i+1;}
-  return 9;
 }
 
 // ─────────────────────────────────────────────

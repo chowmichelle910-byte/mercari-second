@@ -381,8 +381,7 @@ button{font-family:var(--font);}
       <!-- 到貨資料 -->
       <div id="tp-arrival" class="tool-subpanel">
         <button class="tool-btn tb-green" onclick="runExportAndRefresh()">📦 匯出到貨資料到 Record</button>
-        <button class="tool-btn tb-purple" onclick="runTool('sendGroupReceiptsAsPdf','寄送到貨收據 PDF')">📎 寄送到貨收據 PDF</button>
-        <div id="arrivalToolSts" class="tstatus"></div>
+<div id="arrivalToolSts" class="tstatus"></div>
         <div id="recordCardList" style="margin-top:14px;"></div>
       </div>
 
@@ -1566,7 +1565,7 @@ ${itemsHtml}
 async function runTool(action,label){
   const group=curToolGrp;
   if(!group){alert('請先選擇團次！');return;}
-  const stsId=action==='exportArrivalData'||action==='sendGroupReceiptsAsPdf'?'arrivalToolSts':'shipToolSts';
+  const stsId=action==='exportArrivalData'?'arrivalToolSts':'shipToolSts';
   setSts(stsId,`⏳ ${label} 處理中…`,'ld');
   try{
     const d=await postMain({action,password:pw,group});
