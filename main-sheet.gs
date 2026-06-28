@@ -319,8 +319,8 @@ function getGroupInfo_(groupId) {
     return (d.getMonth()+1) + '/' + d.getDate();
   }
 
-  // 匯率：¥50001+ ～ ¥1~10000（高到低）
-  const rateDisplay = [rate3, rate2, rate1].filter(Boolean).map(String).join('～');
+  // 匯率：¥50001+ ～ ¥1~10000（只顯示最高最低）
+  const rateDisplay = [rate3, rate1].filter(Boolean).map(String).join('～');
 
   return {
     groupNum:    normalize(group),
