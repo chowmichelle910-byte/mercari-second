@@ -1192,7 +1192,7 @@ function _shipCopy(key, btn){
 function renderShipSummary(d){
   const el=document.getElementById('shipSummary');
   if(!el)return;
-  const {easy=[],sf=[],plain=[],home=[],sfWeight=0,homeWeight=0,prevGroupOverallIds=[],currTag='',total=0}=d;
+  const {easy=[],sf=[],plain=[],home=[],held=[],sfWeight=0,homeWeight=0,prevGroupOverallIds=[],currTag='',total=0}=d;
 
   function copyBtn(text, label){
     const key='sk'+Date.now()+Math.random().toString(36).slice(2);
@@ -1252,6 +1252,20 @@ function renderShipSummary(d){
     plain.map(i=>plainRow(i)), plainText);
   html+=section('🏠','拎翻屋企 '+home.length+' 件','#D97706',
     home.map(i=>normalRow({mark:i.mark,tracking:'',sub:i.weight?i.weight+'g':''})), homeText);
+  if(held.length){
+    const heldText=held.map(i=>`⏩ 保留：${i.mark}　→ ${i.nextTag||'下一團'}`).join('\n');
+    html+=`<div style="background:var(--white);border-radius:var(--r-md);margin-bottom:10px;overflow:hidden;box-shadow:var(--sh-sm);border-left:4px solid #EF4444;">
+      <div style="padding:10px 13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:800;color:#DC2626;">⚠️ 保留至下一團 ${held.length} 件</div>
+        ${copyBtn(heldText,'複製')}
+      </div>
+      <div style="padding:0 13px;">${held.map(i=>`<div style="padding:12px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:17px;font-weight:900;color:#DC2626;margin-bottom:4px;">${esc(i.mark||'—')}</div>
+        <div style="font-size:12px;font-weight:700;color:#991B1B;">⏩ 拎返屋企，留待${esc(i.nextTag||'下一團')}寄出</div>
+        ${i.itemNames?`<div style="font-size:11px;color:#94A3B8;margin-top:2px;">${esc(i.itemNames)}</div>`:''}
+      </div>`).join('')}</div>
+    </div>`;
+  }
   if(prevGroupOverallIds.length){
     html+=`<div style="background:#FFF7ED;border-radius:var(--r-md);padding:10px 13px;font-size:12px;color:#92400E;">上一團拎翻屋企編號：${prevGroupOverallIds.join(', ')}</div>`;
   }
@@ -1296,7 +1310,7 @@ function copyShipUrl(){
 }
 
 function buildShipPageHtml(d){
-  const {easy=[],sf=[],plain=[],home=[],sfWeight=0,homeWeight=0,prevGroupOverallIds=[],currTag='',total=0}=d;
+  const {easy=[],sf=[],plain=[],home=[],held=[],sfWeight=0,homeWeight=0,prevGroupOverallIds=[],currTag='',total=0}=d;
   function row(it){
     const qrUrl=it.tracking?`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(it.tracking)}&bgcolor=ffffff&color=0D1B2A&margin=6`:'';
     return `<div style="background:#fff;border-radius:12px;padding:18px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center;">
@@ -1337,6 +1351,14 @@ ${section('📬','易寄取 '+easy.length+' 件','#2563EB',easy.map(i=>row({mark
 ${section('📦','順豐 '+sf.length+' 件（共'+sfWeight+'g）','#059669',sf.map(i=>row({mark:i.mark,tracking:i.tracking,sub:i.itemNames||''})).join(''))}
 ${section('📮','平郵 '+plain.length+' 件','#7C3AED',plain.map(i=>plainRowHtml(i)).join(''))}
 ${section('🏠','拎翻屋企 '+home.length+' 件','#D97706',home.map(i=>row({mark:i.mark,tracking:'',sub:i.weight?i.weight+'g':''})).join(''))}
+${held.length?`<div style="margin-bottom:20px;">
+  <div style="font-size:24px;font-weight:800;color:#0D1B2A;border-left:4px solid #EF4444;padding-left:10px;margin-bottom:10px;">⚠️ 保留至下一團 ${held.length} 件</div>
+  ${held.map(i=>`<div style="background:#FEF2F2;border:2px solid #FECACA;border-radius:12px;padding:18px;margin-bottom:12px;">
+    <div style="font-size:30px;font-weight:900;color:#DC2626;margin-bottom:8px;">${i.mark||'—'}</div>
+    <div style="font-size:22px;color:#991B1B;font-weight:700;margin-bottom:6px;">⏩ 拎返屋企，留待${i.nextTag||'下一團'}寄出</div>
+    ${i.itemNames?`<div style="font-size:20px;color:#7F1D1D;">${i.itemNames}</div>`:''}
+  </div>`).join('')}
+</div>`:''}
 ${prevGroupOverallIds.length?`<div style="background:#FFF7ED;border-radius:10px;padding:12px;font-size:22px;color:#92400E;">上一團拎翻屋企編號：${prevGroupOverallIds.join(', ')}</div>`:''}
 <div style="text-align:center;padding:16px 0;color:#94A3B8;font-size:21px;">852hk81jp · 由系統自動生成</div>
 </body></html>`;

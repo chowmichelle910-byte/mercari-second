@@ -330,7 +330,7 @@ function getShippingNotificationPreview_(groupTitle) {
     }
   } catch(err) {}
 
-  const easy=[], sf=[], plain=[], home=[];
+  const easy=[], sf=[], plain=[], home=[], held=[];
   let sfWeight=0, homeWeight=0;
 
   filtered.forEach(row => {
@@ -343,12 +343,15 @@ function getShippingNotificationPreview_(groupTitle) {
     const phone     = String(row[10]||'').trim();
     const address   = String(row[11]||'').trim();
     const tracking  = String(row[12]||'').trim();
+    const nextTag   = String(row[13]||'').trim();
     if (!user || !method) return;
     const mark = String(overallId || productId || '').trim();
     const ids  = String(productId || '').split(/[,，\s]+/).filter(Boolean);
     const itemNames = [...new Set(ids.map(id => findItemName(id)).filter(Boolean))].join(', ');
 
-    if (method.includes('易寄取')) {
+    if (method.includes('保留至下一團')) {
+      held.push({ user, mark, itemNames, nextTag });
+    } else if (method.includes('易寄取')) {
       easy.push({ user, mark, method, tracking });
     } else if (method.toUpperCase().includes('SF')) {
       sfWeight += weight;
@@ -364,7 +367,7 @@ function getShippingNotificationPreview_(groupTitle) {
   return {
     total: filtered.length,
     currTag,
-    easy, sf, plain, home,
+    easy, sf, plain, home, held,
     sfWeight: Math.round(sfWeight),
     homeWeight: Math.round(homeWeight),
     prevGroupOverallIds
@@ -833,7 +836,10 @@ function holdToNextGroup_(recordRow, nextTag) {
   const row         = parseInt(recordRow);
   if (isNaN(row) || row < 2) return { error: '無效行號' };
   if (!nextTag) return { error: '未提供下一團標籤' };
-  recordSheet.getRange(row, 3).setValue(nextTag); // C = 到貨標籤
+  // 更新 I 欄（method，col 9）為「保留至下一團」，貨品仍留在當前團查詢範圍
+  // N 欄（col 14）記錄下一團標籤，供日後追蹤
+  recordSheet.getRange(row, 9).setValue('保留至下一團');
+  recordSheet.getRange(row, 14).setValue(nextTag);
   SpreadsheetApp.flush();
   return { success: true, nextTag };
 }
