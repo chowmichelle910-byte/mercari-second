@@ -2274,13 +2274,19 @@ async function igUploadCanvas(){
 }
 
 async function igUploadAndSaveToSheet(){
+  const group=curToolGrp;
+  if(!group){igShowSts('igCreateSts','err','⚠️ 請先選擇團次');return;}
   igShowSts('igCreateSts','ld','⏳ 上傳圖片到 Cloudinary…');
   try{
     const imageUrl=await igUploadCanvas();
+    igShowSts('igCreateSts','ld','⏳ 讀取開團通知內容…');
+    const preview=await postMain({action:'getGroupEmailPreview',password:pw,group});
+    if(preview.error) throw new Error(preview.error);
+    // strip HTML tags → plain text for IG caption
+    const tmp=document.createElement('div');
+    tmp.innerHTML=preview.html||'';
+    const content=tmp.innerText||tmp.textContent||'';
     igShowSts('igCreateSts','ld','⏳ 寫入 IG post sheet…');
-    const groupNum=igGetFieldValue('group-num');
-    const rate=igGetFieldValue('rate-display');
-    const content=`${groupNum||'新團'} 匯率 ${rate||''}`.trim();
     const today=new Date().toLocaleDateString('zh-HK',{year:'numeric',month:'2-digit',day:'2-digit'});
     const d=await postMain({action:'saveIgPost',password:pw,imageUrl,content,date:today});
     if(d.error)throw new Error(d.error);
